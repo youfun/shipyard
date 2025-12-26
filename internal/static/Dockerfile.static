@@ -1,0 +1,99 @@
+# ==============================
+# Stage 1: Frontend build (Node.js)
+# ==============================
+FROM node:20-alpine AS frontend_builder
+
+WORKDIR /app
+
+# 1. Install dependencies (use cache layer)
+COPY package*.json ./
+RUN npm ci || npm install
+
+# 2. Copy source code and run the build
+COPY . .
+# Ensure `npm run build` outputs to the `dist` directory
+# If your framework outputs to `.output/public`, adjust the build script or rename it here
+RUN npm run build
+
+# ==============================
+# Stage 2: Go build (Golang)
+# ==============================
+FROM golang:1.23-alpine AS binary_builder
+
+WORKDIR /src
+
+# 1. Initialize Go module and fetch dependencies
+RUN go mod init static-server && \
+    go get github.com/gin-gonic/gin
+
+# 2. Key step: bring the built `dist` folder from the first stage!
+COPY --from=frontend_builder /app/dist ./dist
+
+# 3. Create Go source (embedded static file server)
+RUN printf '%s\n' \
+'package main' \
+'' \
+'import (' \
+'	"embed"' \
+'	"io/fs"' \
+'	"log"' \
+'	"net/http"' \
+'	"os"' \
+'	"strings"' \
+'' \
+'	"github.com/gin-gonic/gin"' \
+')' \
+'' \
+'//go:embed dist/*' \
+'var staticFiles embed.FS' \
+'' \
+'func main() {' \
+'	gin.SetMode(gin.ReleaseMode)' \
+'	port := os.Getenv("PORT")' \
+'	if port == "" {' \
+'		port = "8080"' \
+'	}' \
+'' \
+'	r := gin.New()' \
+'	r.Use(gin.Recovery())' \
+'' \
+'	distFS, err := fs.Sub(staticFiles, "dist")' \
+'	if err != nil {' \
+'		log.Fatalf("Failed to create sub filesystem: %v", err)' \
+'	}' \
+'	httpFS := http.FS(distFS)' \
+'' \
+'	r.NoRoute(func(c *gin.Context) {' \
+'		path := c.Request.URL.Path' \
+'' \
+'		if strings.HasPrefix(path, "/api") {' \
+'			c.JSON(404, gin.H{"error": "not found"})' \
+'			return' \
+'		}' \
+'' \
+'		filePath := strings.TrimPrefix(path, "/")' \
+'		if filePath == "" {' \
+'			filePath = "index.html"' \
+'		}' \
+'		if _, err := fs.Stat(distFS, filePath); err == nil {' \
+'			c.FileFromFS(path, httpFS)' \
+'			return' \
+'		}' \
+'' \
+'		c.FileFromFS("index.html", httpFS)' \
+'	})' \
+'' \
+'	log.Printf("Server starting on port %s...", port)' \
+'	r.Run(":" + port)' \
+'}' > main.go
+
+# 4. Build a static binary
+# -ldflags="-s -w" removes debug info to reduce binary size
+# CGO_ENABLED=0 ensures no dependency on the system libc
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o server main.go
+
+# ==============================
+# Stage 3: Export (scratch image used only to export files)
+# ==============================
+FROM scratch AS export-release
+COPY --from=binary_builder /src/server /release/server

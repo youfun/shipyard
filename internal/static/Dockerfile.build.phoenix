@@ -1,0 +1,80 @@
+# Build the Phoenix app release and output it to a local volume
+ARG ELIXIR_VERSION=1.17.3
+ARG OTP_VERSION=27.2.3
+ARG DEBIAN_VERSION=bookworm-20250203-slim
+ARG APP_NAME
+
+FROM docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION} AS builder
+ARG APP_NAME
+
+# install build dependencies
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+     build-essential \
+     git \
+     curl \
+     gnupg \
+     ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# If the project needs Node.js for asset builds, uncomment and adjust the version below:
+# RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+#   && apt-get install -y nodejs
+
+  
+# prepare build dir
+WORKDIR /app
+
+# install hex + rebar
+RUN mix local.hex --force \
+  && mix local.rebar --force
+
+# set build ENV
+ENV MIX_ENV="prod"
+
+# --- Important: copy mix.exs; we'll need it shortly ---
+COPY mix.exs mix.lock ./
+RUN mix deps.get --only $MIX_ENV
+RUN mkdir config
+
+# copy compile-time config files
+COPY config/config.exs config/${MIX_ENV}.exs config/
+RUN mix deps.compile
+
+COPY assets assets
+
+RUN mix assets.setup
+COPY priv priv
+COPY lib lib
+RUN mix compile
+
+RUN mix assets.deploy
+COPY config/runtime.exs config/
+COPY rel rel
+RUN mix release
+
+# ---------------------------------------------------------------------
+# [Modified] Automatically get the app name from mix.exs and set permissions
+# 1. Run a small Elixir script to load the :app name from mix.exs
+# 2. Rename /_build/prod/rel/[app_name] to /_build/prod/rel/app_release
+# 3. Set secure permissions on the fixed "app_release" path
+# ---------------------------------------------------------------------
+RUN GENERIC_RELEASE_PATH="/app/_build/prod/rel/app_release" && \
+    echo "--- Using app name from build-arg: ${APP_NAME} ---" && \
+    # 2. Rename to the generic path
+    mv "/app/_build/prod/rel/${APP_NAME}" "${GENERIC_RELEASE_PATH}" && \
+    echo "--- Renamed release to ${GENERIC_RELEASE_PATH} ---" && \
+    # 3. Set permissions on the generic path
+    find "${GENERIC_RELEASE_PATH}" -type d -exec chmod 755 {} + && \
+    find "${GENERIC_RELEASE_PATH}" -type f -exec chmod 644 {} + && \
+    chmod +x ${GENERIC_RELEASE_PATH}/bin/* && \
+    chmod +x ${GENERIC_RELEASE_PATH}/erts-*/bin/* && \
+    find ${GENERIC_RELEASE_PATH}/releases -name elixir -exec chmod +x {} + && \
+    find ${GENERIC_RELEASE_PATH}/releases -name start_clean.boot -exec chmod +x {} +
+
+
+# Final stage — copy the release to the output volume
+FROM scratch AS export-release
+# [Modified] Copy from our fixed, generic path
+COPY --from=builder /app/_build/prod/rel/app_release/ /release/ 
+

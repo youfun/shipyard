@@ -1,0 +1,70 @@
+# Build the Elixir app release and output it to a local volume
+# This is for pure Elixir projects without Phoenix framework
+ARG ELIXIR_VERSION=1.17.3
+ARG OTP_VERSION=27.2.3
+ARG DEBIAN_VERSION=bookworm-20250203-slim
+ARG APP_NAME
+
+FROM docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION} AS builder
+ARG APP_NAME
+
+# install build dependencies
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+     build-essential \
+     git \
+     curl \
+     ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# prepare build dir
+WORKDIR /app
+
+# install hex + rebar
+RUN mix local.hex --force \
+  && mix local.rebar --force
+
+# set build ENV
+ENV MIX_ENV="prod"
+
+# copy mix.exs and mix.lock
+COPY mix.exs mix.lock ./
+RUN mix deps.get --only $MIX_ENV
+
+# create config directory and copy config files
+RUN mkdir -p config
+COPY config/ config/
+
+RUN mix deps.compile
+
+# copy lib (required)
+COPY lib lib
+
+# copy priv directory (will be created by build script if doesn't exist)
+COPY priv priv
+
+RUN mix compile
+
+# build release
+RUN mix release
+
+# ---------------------------------------------------------------------
+# Automatically get the app name from mix.exs and set permissions
+# ---------------------------------------------------------------------
+RUN GENERIC_RELEASE_PATH="/app/_build/prod/rel/app_release" && \
+    echo "--- Using app name from build-arg: ${APP_NAME} ---" && \
+    # Rename to the generic path
+    mv "/app/_build/prod/rel/${APP_NAME}" "${GENERIC_RELEASE_PATH}" && \
+    echo "--- Renamed release to ${GENERIC_RELEASE_PATH} ---" && \
+    # Set permissions on the generic path
+    find "${GENERIC_RELEASE_PATH}" -type d -exec chmod 755 {} + && \
+    find "${GENERIC_RELEASE_PATH}" -type f -exec chmod 644 {} + && \
+    chmod +x ${GENERIC_RELEASE_PATH}/bin/* && \
+    chmod +x ${GENERIC_RELEASE_PATH}/erts-*/bin/* && \
+    find ${GENERIC_RELEASE_PATH}/releases -name elixir -exec chmod +x {} + && \
+    find ${GENERIC_RELEASE_PATH}/releases -name start_clean.boot -exec chmod +x {} + || true
+
+# Final stage — copy the release to the output volume
+FROM scratch AS export-release
+# Copy from our fixed, generic path
+COPY --from=builder /app/_build/prod/rel/app_release/ /release/
