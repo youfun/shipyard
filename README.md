@@ -87,95 +87,23 @@ For detailed documentation, see [Multi-Domain and Multi-Environment Examples](do
 
 ## 🚀 Quick Start
 
-> 💡 **Tip**: For detailed installation instructions and troubleshooting, see [Installation Scripts Guide](scripts/README.md)
+For detailed installation instructions, environment configuration, and troubleshooting, please refer to the **[Installation Scripts Guide](install-guide.en.md)**.
 
-### 1. Server Installation and Configuration
+### 1. Installation Overview
 
-**Method 1: One-line Installation (Recommended)**
+**Shipyard Server:**
+The server handles storage, API, and the Web UI. It can be installed automatically via script (recommended) or manually.
+- **Quick Script:** `curl -fsSL .../install-shipyard-server.sh | bash`
+- **Default Port:** `8080` (API & Web UI)
 
-```bash
-# Download and install from GitHub Release
-curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/deployer/main/scripts/install-shipyard-server.sh | bash
+**Shipyard CLI:**
+The lightweight client for managing deployments.
+- **Quick Script:** `curl -fsSL .../install-shipyard-cli.sh | bash`
+- **First Step:** `shipyard-cli login --endpoint http://your-server:8080`
 
-# Or specify a version
-curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/deployer/main/scripts/install-shipyard-server.sh | bash -s v1.0.0
-```
+> 📖 See the **[Installation Guide](scripts/install-guide.en.md)** for full script usage and manual build instructions.
 
-> 📖 See [scripts/README.md](scripts/README.md) for installation modes, configuration details, and troubleshooting.
-
-**Method 2: Manual Installation**
-
-**Prerequisites**:
-- Go 1.24+
-- Caddy v2 installed and running on your remote host
-- Caddy Admin API port (`:2019`) not blocked by firewall or network policies
-
-**Step 1: Configure Environment Variables (Required for First Use)**
-
-```bash
-# Copy the environment variable example file
-cp .env_example .env
-
-# Edit the .env file and set JWT_SECRET (used for token signing, ensures login state persists after restarts)
-# Generate a random key (recommended)
-openssl rand -base64 32
-
-# .env file example:
-# JWT_SECRET=your-random-secret-key-here
-# DATABASE_TYPE=sqlite  # or postgres, turso
-# DATABASE_URL=./deploy.db
-```
-
-**Step 2: Start the Server**
-
-```bash
-# Build and start the server
-go build -o shipyard-server ./cmd/shipyard-server
-./shipyard-server --port 8080
-
-# The server will be accessible at:
-# - API: http://localhost:8080
-# - Web UI: http://localhost:8080
-```
-
-### 2. Client Installation and Login
-
-**Method 1: One-line Installation (Recommended)**
-
-```bash
-# Automatic detection of OS and architecture, download and install
-curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/deployer/main/scripts/install-shipyard-cli.sh | bash
-
-# Or specify a version
-curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/deployer/main/scripts/install-shipyard-cli.sh | bash -s v1.0.0
-
-> 📖 See [scripts/README.md](scripts/README.md) for installation paths, PATH configuration, and platform support.
-
-# After installation, you can use shipyard-cli directly
-shipyard-cli --version
-```
-
-**Method 2: Manual Build**
-
-**Step 1: Build the Client**
-
-```bash
-go build -o shipyard-cli ./cmd/shipyard-cli
-```
-
-**Step 2: Log in to the Server**
-
-```bash
-# First-time use requires login
-./shipyard-cli login --endpoint http://your-server:8080
-
-# Test connection
-./shipyard-cli ping
-```
-
-The client saves authentication information to `~/.shipyard-cli/config.json`, and subsequent commands will use it automatically.
-
-### 3. Configuration Workflow (Three Steps)
+### 2. Configuration Workflow (Three Steps)
 
 Before using the `deploy` command, you need to define your "hosts" and "applications", then "link" them together.
 
