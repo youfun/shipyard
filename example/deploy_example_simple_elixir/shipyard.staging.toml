@@ -1,0 +1,12 @@
+# Shipyard Staging Configuration
+# Usage: shipyard-cli --config shipyard.staging.toml deploy
+
+# Using a different app name for staging environment
+app = "simple_elixir_app_staging"
+
+[build]
+type = "mix"
+
+[release]
+health_check_path = "/health"
+health_check_timeout = 30

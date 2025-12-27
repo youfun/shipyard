@@ -1,0 +1,250 @@
+name: Go Cross-Platform Build (Full Stack)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  # ==========================================
+  # Frontend Build (single-run)
+  # ==========================================
+  build-webui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install and Build WebUI
+        working-directory: ./webui
+        env:
+          BUILD_OUTPUT_DIR: dist
+        run: |
+          echo "Building from ref: ${{ github.ref_name }}"
+          bun install
+          bun run build
+
+      - name: Upload WebUI Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-dist-${{ github.ref_name }}
+          path: webui/dist
+          if-no-files-found: error
+
+  # ==========================================
+  # Server Build (Linux AMD64 only)
+  # ==========================================
+  build-server:
+    runs-on: ubuntu-latest
+    needs: build-webui
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download WebUI
+        uses: actions/download-artifact@v4
+        with:
+          name: webui-dist-${{ github.ref_name }}
+          path: internal/api/webui
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build shipyard-server (Linux AMD64)
+        run: |
+          VERSION="${{ github.ref_name }}"
+          if [ "$VERSION" = "main" ]; then
+            VERSION="latest"
+          fi
+          echo "Building shipyard-server for Linux AMD64 (Version: $VERSION)..."
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+          go build -ldflags="-s -w -X main.Version=$VERSION" -o shipyard-server-linux-amd64 ./cmd/shipyard-server
+
+      - name: Upload Server (Linux AMD64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipyard-server-linux-amd64-${{ github.ref_name }}
+          path: shipyard-server-linux-amd64
+          if-no-files-found: error
+
+  # ==========================================
+  # CLI Build - Linux
+  # ==========================================
+  build-cli-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install Cross-Compilation Tools
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Debug - Show directory structure
+        run: |
+          pwd
+          ls -la
+          ls -la cmd/ || echo "cmd directory not found"
+
+      - name: Build shipyard-cli (Linux ${{ matrix.arch }})
+        run: |
+          VERSION="${{ github.ref_name }}"
+          if [ "$VERSION" = "main" ]; then
+            VERSION="latest"
+          fi
+          echo "Building shipyard-cli for Linux ${{ matrix.arch }} (Version: $VERSION)..."
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            export CC=aarch64-linux-gnu-gcc
+          fi
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} \
+          go build -ldflags="-s -w -X main.version=$VERSION" -o shipyard-cli-linux-${{ matrix.arch }} ./cmd/shipyard-cli
+
+      - name: Upload CLI (Linux ${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipyard-cli-linux-${{ matrix.arch }}-${{ github.ref_name }}
+          path: shipyard-cli-linux-${{ matrix.arch }}
+          if-no-files-found: error
+
+  # ==========================================
+  # CLI Build - macOS
+  # ==========================================
+  build-cli-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Debug - Show directory structure
+        run: |
+          pwd
+          ls -la
+          ls -la cmd/ || echo "cmd directory not found"
+
+      - name: Build shipyard-cli (macOS ${{ matrix.arch }})
+        run: |
+          VERSION="${{ github.ref_name }}"
+          if [ "$VERSION" = "main" ]; then
+            VERSION="latest"
+          fi
+          echo "Building shipyard-cli for macOS ${{ matrix.arch }} (Version: $VERSION)..."
+          CGO_ENABLED=1 GOOS=darwin GOARCH=${{ matrix.arch }} \
+          go build -ldflags="-s -w -X main.version=$VERSION" -o shipyard-cli-darwin-${{ matrix.arch }} ./cmd/shipyard-cli
+
+      - name: Upload CLI (macOS ${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipyard-cli-darwin-${{ matrix.arch }}-${{ github.ref_name }}
+          path: shipyard-cli-darwin-${{ matrix.arch }}
+          if-no-files-found: error
+
+  # ==========================================
+  # CLI Build - Windows
+  # ==========================================
+  build-cli-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build shipyard-cli (Windows ${{ matrix.arch }})
+        run: |
+          $VERSION = "${{ github.ref_name }}"
+          if ($VERSION -eq "main") {
+            $VERSION = "latest"
+          }
+          echo "Building shipyard-cli for Windows ${{ matrix.arch }} (Version: $VERSION)..."
+          # Windows ARM64 cross-compilation doesn't support CGO
+          if ("${{ matrix.arch }}" -eq "arm64") {
+            $env:CGO_ENABLED = "0"
+          } else {
+            $env:CGO_ENABLED = "1"
+          }
+          $env:GOOS = "windows"
+          $env:GOARCH = "${{ matrix.arch }}"
+          go build -ldflags="-s -w -X main.version=$VERSION" -o shipyard-cli-windows-${{ matrix.arch }}.exe ./cmd/shipyard-cli
+
+      - name: Upload CLI (Windows ${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipyard-cli-windows-${{ matrix.arch }}-${{ github.ref_name }}
+          path: shipyard-cli-windows-${{ matrix.arch }}.exe
+          if-no-files-found: error
+
+  # ==========================================
+  # Create Release and upload all build artifacts
+  # ==========================================
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [build-server, build-cli-linux, build-cli-macos, build-cli-windows]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: '*-${{ github.ref_name }}'
+
+      - name: Remove WebUI artifact from release assets
+        run: |
+          echo "Removing webui-dist artifact before release..."
+          rm -rf artifacts/webui-dist-${{ github.ref_name }}
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
+          name: ${{ github.ref_name == 'main' && 'Latest Build' || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/**/*

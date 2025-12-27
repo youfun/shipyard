@@ -1,0 +1,19 @@
+# Shipyard Configuration for Simple Elixir App
+# This demonstrates deploying a non-Phoenix Elixir application
+
+# IMPORTANT: For Elixir apps, this MUST match the :app name in mix.exs
+# (underscores in Elixir atom become underscores here, not hyphens)
+app = "simple_elixir_app"
+
+[build]
+type = "mix"
+# No assets to build - this is a simple backend app
+
+[release]
+# Health check endpoint for zero-downtime deployment
+health_check_path = "/health"
+health_check_timeout = 30
+
+[hooks]
+# Optional: Run database migrations or other tasks before deployment
+# pre_deploy = ["./bin/simple_elixir_app eval 'IO.puts(\"Pre-deploy hook\")'"]

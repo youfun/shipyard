@@ -1,0 +1,52 @@
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# IDE-specific files
+.idea/
+.vscode/
+
+# Environment files
+.env
+
+# Binaries for programs and plugins
+*.dll
+*.dylib
+*.exe
+*.so
+
+# Compiled binary / related
+*.upx
+lazyjournal/
+# fastcaddy/
+
+# Test and coverage
+*.out
+*.test
+
+# Go module / dependency notes
+# vendor/
+# go.sum # Usually kept, but if you want to ignore it
+
+# Local database files
+*.db
+*.db-shm
+*.db-wal
+
+# Build output directories
+build/
+releases/
+tmp/
+
+# WebUI / Node artifacts
+webui/dist/
+webui/node_modules/
+webui-new/node_modules/
+
+# Internal WebUI artifacts (compiled deployer/webui)
+internal/api/webui/
+
+
+
+# Compiled binaries without extensions
+/deployer.toml

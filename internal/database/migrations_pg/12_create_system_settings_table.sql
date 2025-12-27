@@ -1,0 +1,9 @@
+-- +migrate Up
+CREATE TABLE IF NOT EXISTS system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- +migrate Down
+DROP TABLE IF EXISTS system_settings;

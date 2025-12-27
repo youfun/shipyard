@@ -1,0 +1,85 @@
+# ==============================
+# 纯静态文件服务器构建 (无需前端构建)
+# 适用于已有静态文件 (HTML/CSS/JS) 的项目
+# ==============================
+FROM golang:1.23-alpine AS binary_builder
+
+WORKDIR /src
+
+# 1. 初始化 Go 模块和安装依赖
+RUN go mod init static-server && \
+    go get github.com/gin-gonic/gin
+
+# 2. 复制静态文件到 dist 目录
+# ARG STATIC_DIR 允许自定义源目录（默认为 "."）
+ARG STATIC_DIR=.
+COPY ${STATIC_DIR} ./dist/
+
+# 3. 创建 Go 源码 (内嵌静态文件服务器)
+RUN printf '%s\n' \
+'package main' \
+'' \
+'import (' \
+'	"embed"' \
+'	"io/fs"' \
+'	"log"' \
+'	"net/http"' \
+'	"os"' \
+'	"strings"' \
+'' \
+'	"github.com/gin-gonic/gin"' \
+')' \
+'' \
+'//go:embed dist/*' \
+'var staticFiles embed.FS' \
+'' \
+'func main() {' \
+'	gin.SetMode(gin.ReleaseMode)' \
+'	port := os.Getenv("PORT")' \
+'	if port == "" {' \
+'		port = "8080"' \
+'	}' \
+'' \
+'	r := gin.New()' \
+'	r.Use(gin.Recovery())' \
+'' \
+'	distFS, err := fs.Sub(staticFiles, "dist")' \
+'	if err != nil {' \
+'		log.Fatalf("Failed to create sub filesystem: %v", err)' \
+'	}' \
+'	httpFS := http.FS(distFS)' \
+'' \
+'	r.NoRoute(func(c *gin.Context) {' \
+'		path := c.Request.URL.Path' \
+'' \
+'		if strings.HasPrefix(path, "/api") {' \
+'			c.JSON(404, gin.H{"error": "not found"})' \
+'			return' \
+'		}' \
+'' \
+'		filePath := strings.TrimPrefix(path, "/")' \
+'		if filePath == "" {' \
+'			filePath = "index.html"' \
+'		}' \
+'		if _, err := fs.Stat(distFS, filePath); err == nil {' \
+'			c.FileFromFS(path, httpFS)' \
+'			return' \
+'		}' \
+'' \
+'		c.FileFromFS("index.html", httpFS)' \
+'	})' \
+'' \
+'	log.Printf("Server starting on port %s...", port)' \
+'	r.Run(":" + port)' \
+'}' > main.go
+
+# 4. 编译成静态二进制文件
+# -ldflags="-s -w" 用于去除调试信息，减小体积
+# CGO_ENABLED=0 确保不依赖系统 libc
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o server main.go
+
+# ==============================
+# 导出阶段
+# ==============================
+FROM scratch AS export-release
+COPY --from=binary_builder /src/server /release/server
